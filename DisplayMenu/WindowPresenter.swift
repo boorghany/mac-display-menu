@@ -81,34 +81,69 @@ final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamO
 
     // MARK: Streaming
 
+    /// True when the picked window is on the monitor itself. Then it is shown where it is, at its real size,
+    /// and the rest of the monitor goes black. Otherwise (a MacBook window) it is scaled to fill the monitor.
+    private var inPlace = false
+    /// The monitor's bounds in global display coordinates (points, origin at the top left of the main display).
+    private var monitorBounds = CGRect.zero
+    private var lastLayerFrame = CGRect.null
+
     private func configuration(for filter: SCContentFilter, on screen: NSScreen) -> SCStreamConfiguration {
         let c = SCStreamConfiguration()
-        // Capture straight at the size the window will fill on the monitor, in the monitor's pixels,
-        // so the frame is shown 1:1 and ScreenCaptureKit does the scaling from the window's own pixels.
         let target = CGSize(width: screen.frame.width * screen.backingScaleFactor,
                             height: screen.frame.height * screen.backingScaleFactor)
-        let src = filter.contentRect.size
-        let fit = min(target.width / max(src.width, 1), target.height / max(src.height, 1))
-        c.width = max(2, Int((src.width * fit).rounded()))
-        c.height = max(2, Int((src.height * fit).rounded()))
+        if inPlace {
+            // A surface as big as the monitor holds the window unscaled whatever its size, so it stays
+            // sharp when it is resized. Each frame says where the window is, and the layer follows it.
+            c.width = Int(target.width)
+            c.height = Int(target.height)
+            c.scalesToFit = false
+            c.showsCursor = false // the real cursor is already there
+        } else {
+            // Capture straight at the size the window will fill on the monitor, in the monitor's pixels,
+            // so the frame is shown 1:1 and ScreenCaptureKit does the scaling from the window's own pixels.
+            let src = filter.contentRect.size
+            let fit = min(target.width / max(src.width, 1), target.height / max(src.height, 1))
+            c.width = max(2, Int((src.width * fit).rounded()))
+            c.height = max(2, Int((src.height * fit).rounded()))
+            c.scalesToFit = true
+            c.showsCursor = true
+        }
+        c.captureResolution = .best
         c.minimumFrameInterval = CMTime(value: 1, timescale: 60)
         c.pixelFormat = kCVPixelFormatType_32BGRA
         c.queueDepth = 5
-        c.showsCursor = true
-        c.scalesToFit = true
         c.ignoreShadowsSingleWindow = true
         return c
     }
 
     private func start(with filter: SCContentFilter) {
-        guard let screen = Self.externalScreen() else { NSSound.beep(); return }
+        guard let screen = Self.externalScreen(), let ext = Displays.external else { NSSound.beep(); return }
         endStream() // picking again replaces the window being shown
-        if window == nil { showWindow(on: screen) }
-        displayLayer.contentsScale = screen.backingScaleFactor
-        let config = configuration(for: filter, on: screen)
-        NSLog("DisplayMenu: showing window %@ @%.0fx as %dx%d px",
-              NSStringFromRect(filter.contentRect), filter.pointPixelScale, config.width, config.height)
 
+        let picked = filter.includedWindows.first
+        let frame = picked?.frame ?? filter.contentRect
+        monitorBounds = CGDisplayBounds(ext)
+        inPlace = monitorBounds.contains(CGPoint(x: frame.midX, y: frame.midY))
+
+        showWindow(on: screen)
+        displayLayer.contentsScale = screen.backingScaleFactor
+        lastLayerFrame = .null
+        if inPlace {
+            displayLayer.videoGravity = .resize
+            displayLayer.autoresizingMask = []
+            displayLayer.frame = .zero // placed by the first frame
+            // Bring the window's app forward so clicks on the image reach the window under it.
+            if let pid = picked?.owningApplication?.processID {
+                NSRunningApplication(processIdentifier: pid)?.activate()
+            }
+        } else {
+            displayLayer.videoGravity = .resizeAspect
+            displayLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+            displayLayer.frame = window?.contentView?.bounds ?? .zero
+        }
+
+        let config = configuration(for: filter, on: screen)
         let s = SCStream(filter: filter, configuration: config, delegate: self)
         do {
             try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: frameQueue)
@@ -128,9 +163,12 @@ final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamO
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, sampleBuffer.isValid,
               let infos = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
-              let raw = infos.first?[.status] as? Int,
+              let info = infos.first,
+              let raw = info[.status] as? Int,
               SCFrameStatus(rawValue: raw) == .complete
         else { return }
+
+        if inPlace { placeLayer(for: sampleBuffer, info: info) }
 
         // Show each frame as soon as it arrives instead of scheduling it on a timebase.
         if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true),
@@ -143,6 +181,33 @@ final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamO
         let renderer = displayLayer.sampleBufferRenderer
         if renderer.status == .failed { renderer.flush() }
         renderer.enqueue(sampleBuffer)
+    }
+
+    /// Positions the layer so the window in the frame lands exactly where the real window is on the monitor.
+    private func placeLayer(for sampleBuffer: CMSampleBuffer, info: [SCStreamFrameInfo: Any]) {
+        guard let screenDict = info[.screenRect], let contentDict = info[.contentRect],
+              let onScreen = CGRect(dictionaryRepresentation: screenDict as! CFDictionary),
+              let inSurface = CGRect(dictionaryRepresentation: contentDict as! CFDictionary),
+              let image = CMSampleBufferGetImageBuffer(sampleBuffer)
+        else { return }
+        let scale = (info[.scaleFactor] as? CGFloat) ?? 1
+        // The whole surface in points, and where its top-left corner has to go so the content matches the window.
+        let surface = CGSize(width: CGFloat(CVPixelBufferGetWidth(image)) / scale,
+                             height: CGFloat(CVPixelBufferGetHeight(image)) / scale)
+        let k = onScreen.width / max(inSurface.width, 1) // 1 unless the surface had to shrink the window
+        let topLeft = CGPoint(x: onScreen.minX - inSurface.minX * k - monitorBounds.minX,
+                              y: onScreen.minY - inSurface.minY * k - monitorBounds.minY)
+        let size = CGSize(width: surface.width * k, height: surface.height * k)
+        let frame = CGRect(x: topLeft.x, y: monitorBounds.height - topLeft.y - size.height,
+                           width: size.width, height: size.height)
+        DispatchQueue.main.async {
+            guard self.inPlace, frame != self.lastLayerFrame else { return }
+            self.lastLayerFrame = frame
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            self.displayLayer.frame = frame
+            CATransaction.commit()
+        }
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
@@ -162,31 +227,34 @@ final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamO
     }
 
     private func showWindow(on screen: NSScreen) {
-        let w = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        if window == nil {
+            let w = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            w.backgroundColor = .black
+            w.isOpaque = true
+            w.hasShadow = false
+            w.ignoresMouseEvents = true // clicks go to the real windows underneath
+            w.isReleasedWhenClosed = false
+            w.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+            let view = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor.black.cgColor
+            view.layer?.addSublayer(displayLayer)
+            w.contentView = view
+            window = w
+        }
+        guard let w = window else { return }
         w.setFrame(screen.frame, display: false)
-        // Above the menu bar so the monitor shows only the chosen window.
-        w.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.mainMenuWindow)) + 1)
-        w.backgroundColor = .black
-        w.isOpaque = true
-        w.hasShadow = false
-        w.ignoresMouseEvents = true
-        w.isReleasedWhenClosed = false
-        w.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
-
-        let view = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.black.cgColor
-        displayLayer.frame = view.bounds
-        displayLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        view.layer?.addSublayer(displayLayer)
-        w.contentView = view
+        let menuBar = Int(CGWindowLevelForKey(.mainMenuWindow))
+        // A MacBook window covers the whole monitor. A window shown in place keeps the menu bar usable.
+        w.level = NSWindow.Level(rawValue: inPlace ? menuBar - 1 : menuBar + 1)
         w.orderFrontRegardless()
-        window = w
     }
 
     private func screensChanged() {
         guard let window else { return }
-        if let screen = Self.externalScreen(), Displays.current() == .extend {
+        if let screen = Self.externalScreen(), let ext = Displays.external, Displays.current() == .extend {
+            monitorBounds = CGDisplayBounds(ext)
+            lastLayerFrame = .null
             window.setFrame(screen.frame, display: true)
         } else {
             stop() // monitor unplugged or switched to mirror

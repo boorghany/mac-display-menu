@@ -21,7 +21,10 @@ DisplayMenu uses only macOS's own APIs and does not ask for Accessibility, Input
 
 ## Mode 4 and image quality
 
-Mode 4 does not move any window or change the screen arrangement. If the screens are mirrored, it switches to extend first, because the monitor has to be a separate screen. For a sharp image, keep the shown window on the MacBook's Retina screen: it is captured at twice the pixels and scaled down to the monitor. A window on a 1x monitor has fewer pixels than the monitor area it fills, so its image gets scaled up and looks soft. Each frame is captured at the exact pixel size it fills on the monitor and shown 1:1.
+Mode 4 does not move any window or change the screen arrangement. If the screens are mirrored, it switches to extend first, because the monitor has to be a separate screen.
+
+- **A window on the MacBook** fills the monitor. Each frame is captured at the exact pixel size it fills on the monitor, and the window's Retina pixels are scaled down, so text stays sharp.
+- **A window on the monitor itself** stays where it is, at its real size, and the rest of the monitor goes black. The menu bar and the Dock stay usable. The window's app comes to the front, so clicks reach the real window under the image. The image follows the window when you move or resize it.
 
 ## Moving a window to the monitor (extend mode)
 
