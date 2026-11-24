@@ -6,7 +6,7 @@
 //   displaymode mirror-builtin   mirror, optimized for the built-in screen
 //   displaymode mirror-external  mirror, optimized for the external monitor
 //   displaymode status
-//   displaymode menu             open the DisplayMenu picker window (if the app is running)
+//   displaymode menu             open the Mac Display Menu picker window (if the app is running)
 
 import CoreGraphics
 import Foundation
@@ -109,7 +109,7 @@ case "mirror-external":
     }
 
 case "menu":
-    DistributedNotificationCenter.default().postNotificationName(.init("com.user.displaymenu.show"), object: nil, userInfo: nil, deliverImmediately: true)
+    DistributedNotificationCenter.default().postNotificationName(.init("io.github.boorghany.macdisplaymenu.show"), object: nil, userInfo: nil, deliverImmediately: true)
 
 case "status":
     for d in onlineDisplays() { print(describe(d)) }

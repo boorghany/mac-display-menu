@@ -1,4 +1,4 @@
-// DisplayMenu — press ⌘P anywhere to open a small window in the middle of the screen
+// Mac Display Menu — press ⌘P anywhere to open a small window in the middle of the screen
 // and pick how the external monitor is used. Uses only macOS's own APIs:
 // CoreGraphics for display configuration and a Carbon global hotkey,
 // so it needs no Accessibility, Input Monitoring or Screen Recording permission.
@@ -16,19 +16,19 @@ enum Mode: Int, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .extend: return "اکستند"
-        case .mirrorBuiltin: return "میرور با ترجیح صفحه مک‌بوک"
-        case .mirrorExternal: return "میرور با ترجیح مانیتور"
-        case .singleWindow: return "اکستند با یک پنجره"
+        case .extend: return "Extend"
+        case .mirrorBuiltin: return "Mirror for the MacBook"
+        case .mirrorExternal: return "Mirror for the monitor"
+        case .singleWindow: return "Extend one window"
         }
     }
 
     var subtitle: String {
         switch self {
-        case .extend: return "دو صفحه جدا؛ پنجره‌ها را می‌توانید به مانیتور ببرید"
-        case .mirrorBuiltin: return "تصویر یکسان با کیفیت صفحه مک‌بوک"
-        case .mirrorExternal: return "تصویر یکسان با کیفیت مانیتور"
-        case .singleWindow: return "فقط یک پنجره روی مانیتور؛ آن را روی مک‌بوک نگه دارید"
+        case .extend: return "Two separate screens"
+        case .mirrorBuiltin: return "Same image, at the MacBook's resolution"
+        case .mirrorExternal: return "Same image, at the monitor's resolution"
+        case .singleWindow: return "Show only the window you pick on the monitor"
         }
     }
 
@@ -146,10 +146,10 @@ struct PickerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("حالت نمایش را انتخاب کنید")
+            Text("Choose a display mode")
                 .font(.system(size: 17, weight: .semibold))
             if !hasExternal {
-                Text("مانیتوری وصل نیست.")
+                Text("No external monitor is connected.")
                     .font(.system(size: 13)).foregroundStyle(.secondary)
             }
             ForEach(Mode.allCases) { mode in
@@ -160,26 +160,12 @@ struct PickerView: View {
                         if inside { hover.mode = mode } else if hover.mode == mode { hover.mode = nil }
                     }
             }
-            VStack(alignment: .leading, spacing: 3) {
-                Text("کلیدهای ۱ تا ۴ هم کار می‌کنند. Esc برای بستن.")
-                HStack(spacing: 4) {
-                    Text("بردن پنجره فعلی در حالت اکستند:")
-                    keys("⌃⌥⌘→")
-                    Text("به مانیتور،")
-                    keys("⌃⌥⌘←")
-                    Text("به مک‌بوک")
-                }
-            }
-            .font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("Press 1–4 to choose, Esc to close.")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
         }
         .padding(20)
         .frame(width: 420)
-        .environment(\.layoutDirection, .rightToLeft)
-    }
-
-    func keys(_ k: String) -> some View {
-        Text("\u{200E}" + k + "\u{200E}").fixedSize()
-    }
+            }
 
     func row(_ mode: Mode) -> some View {
         let isCurrent = mode == current
@@ -191,7 +177,7 @@ struct PickerView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(mode.title).font(.system(size: 14, weight: .medium))
                 Text(isCurrent && mode == .singleWindow
-                     ? "در حال نمایش؛ بزنید تا پنجره را عوض کنید"
+                     ? "Showing now. Choose again to pick another window."
                      : mode.subtitle)
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
@@ -199,7 +185,7 @@ struct PickerView: View {
             if isCurrent {
                 Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
             }
-            Text("\(mode.rawValue + 1)".persianDigits)
+            Text("\(mode.rawValue + 1)")
                 .font(.system(size: 12, weight: .medium))
                 .frame(width: 22, height: 22)
                 .background(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.5)))
@@ -214,13 +200,6 @@ struct PickerView: View {
     }
 }
 
-extension String {
-    var persianDigits: String {
-        let table: [Character: Character] = ["0": "۰", "1": "۱", "2": "۲", "3": "۳", "4": "۴", "5": "۵", "6": "۶", "7": "۷", "8": "۸", "9": "۹"]
-        return String(self.map { table[$0] ?? $0 })
-    }
-}
-
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var panel: KeyPanel?
     var previousApp: NSRunningApplication?
@@ -230,12 +209,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationDidFinishLaunching(_ note: Notification) {
         registerHotKey()
         // Pick a mode from scripts (object = "1"..."4"), mainly for testing.
-        DistributedNotificationCenter.default().addObserver(forName: .init("com.user.displaymenu.mode"), object: nil, queue: .main) { [weak self] note in
+        DistributedNotificationCenter.default().addObserver(forName: .init("io.github.boorghany.macdisplaymenu.mode"), object: nil, queue: .main) { [weak self] note in
             if let s = note.object as? String, let i = Int(s), let m = Mode(rawValue: i - 1) { self?.pick(m) }
         }
         // Also open the picker from scripts:
-        //   swift -e 'import Foundation; DistributedNotificationCenter.default().post(name: .init("com.user.displaymenu.show"), object: nil)'
-        DistributedNotificationCenter.default().addObserver(forName: .init("com.user.displaymenu.show"), object: nil, queue: .main) { [weak self] _ in
+        //   swift -e 'import Foundation; DistributedNotificationCenter.default().post(name: .init("io.github.boorghany.macdisplaymenu.show"), object: nil)'
+        DistributedNotificationCenter.default().addObserver(forName: .init("io.github.boorghany.macdisplaymenu.show"), object: nil, queue: .main) { [weak self] _ in
             self?.toggle()
         }
     }

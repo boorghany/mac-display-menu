@@ -23,7 +23,7 @@ final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamO
         let picker = SCContentSharingPicker.shared
         var cfg = SCContentSharingPickerConfiguration()
         cfg.allowedPickerModes = [.singleWindow]
-        cfg.excludedBundleIDs = [Bundle.main.bundleIdentifier ?? "com.user.displaymenu"]
+        cfg.excludedBundleIDs = [Bundle.main.bundleIdentifier ?? "io.github.boorghany.macdisplaymenu"]
         // Changing the window of a running stream makes macOS check Screen Recording permission,
         // so every pick starts a fresh stream from the picker instead.
         cfg.allowsChangingSelectedContent = false
@@ -121,7 +121,8 @@ final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamO
         guard let screen = Self.externalScreen(), let ext = Displays.external else { NSSound.beep(); return }
         endStream() // picking again replaces the window being shown
 
-        let picked = filter.includedWindows.first
+        var picked: SCWindow?
+        if #available(macOS 15.2, *) { picked = filter.includedWindows.first }
         let frame = picked?.frame ?? filter.contentRect
         monitorBounds = CGDisplayBounds(ext)
         inPlace = monitorBounds.contains(CGPoint(x: frame.midX, y: frame.midY))
