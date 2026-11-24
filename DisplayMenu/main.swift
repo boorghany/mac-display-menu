@@ -28,7 +28,7 @@ enum Mode: Int, CaseIterable, Identifiable {
         case .extend: return "دو صفحه جدا؛ پنجره‌ها را می‌توانید به مانیتور ببرید"
         case .mirrorBuiltin: return "تصویر یکسان با کیفیت صفحه مک‌بوک"
         case .mirrorExternal: return "تصویر یکسان با کیفیت مانیتور"
-        case .singleWindow: return "فقط پنجره‌ای که انتخاب می‌کنید روی مانیتور دیده می‌شود"
+        case .singleWindow: return "فقط یک پنجره روی مانیتور؛ آن را روی مک‌بوک نگه دارید"
         }
     }
 
@@ -77,6 +77,18 @@ enum Displays {
         let same = modes(d).filter { $0.width == target.width && $0.height == target.height }
         let samePixels = same.filter { $0.pixelWidth == target.pixelWidth && $0.pixelHeight == target.pixelHeight }
         return (samePixels.isEmpty ? same : samePixels).max { $0.refreshRate < $1.refreshRate }
+    }
+
+    /// Makes `d` the main display (menu bar and Dock) and keeps the screens' arrangement.
+    static func setMain(_ d: CGDirectDisplayID) {
+        let shift = CGDisplayBounds(d).origin
+        guard shift != .zero else { return }
+        configure { cfg in
+            for id in online() where CGDisplayMirrorsDisplay(id) == kCGNullDirectDisplay {
+                let o = CGDisplayBounds(id).origin
+                CGConfigureDisplayOrigin(cfg, id, Int32(o.x - shift.x), Int32(o.y - shift.y))
+            }
+        }
     }
 
     @discardableResult

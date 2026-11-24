@@ -17,7 +17,11 @@ DisplayMenu uses only macOS's own APIs and does not ask for Accessibility, Input
 
 - Display modes use the CoreGraphics display configuration API (`CGConfigureDisplayMirrorOfDisplay`), which is the same setting as System Settings › Displays.
 - The ⌘P shortcut is a Carbon global hotkey (`RegisterEventHotKey`).
-- Mode 4 uses the macOS window picker (`SCContentSharingPicker`, ScreenCaptureKit, macOS 14+). You pick the window in the system's own UI, so macOS gives access to that window only. While a window is shown, macOS displays its usual screen-sharing indicator in the menu bar, where you can switch to another window or stop. Choosing mode 4 again also lets you switch windows, and choosing modes 1–3 stops it.
+- Mode 4 uses the macOS window picker (`SCContentSharingPicker`, ScreenCaptureKit, macOS 14+). You pick the window in the system's own UI, so macOS gives access to that window only. Each pick starts a new capture stream from the picker. Changing the content of a running stream would make macOS check Screen Recording permission, so the app never does that. Choose mode 4 again to switch windows. Choose modes 1–3, or use the menu-bar sharing indicator, to stop.
+
+## Mode 4 and image quality
+
+While mode 4 is on, the MacBook becomes the main display, so the menu bar, the Dock and new windows open there. The earlier main display comes back when mode 4 stops. Keep the shown window on the MacBook's Retina screen: it is captured at twice the pixels and scaled down to the monitor, which keeps text sharp. A window on a 1x monitor has fewer pixels than the monitor area it fills, so its image gets scaled up and looks soft. Each frame is captured at the exact pixel size it fills on the monitor and shown 1:1.
 
 ## Moving a window to the monitor (extend mode)
 

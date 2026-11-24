@@ -13,6 +13,8 @@ import ScreenCaptureKit
 final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
     private var window: NSWindow?
+    /// The main display before this mode made the MacBook main, restored when it stops.
+    private var previousMain: CGDirectDisplayID?
     private let displayLayer = AVSampleBufferDisplayLayer()
     private let frameQueue = DispatchQueue(label: "displaymenu.frames", qos: .userInteractive)
 
@@ -24,7 +26,9 @@ final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamO
         var cfg = SCContentSharingPickerConfiguration()
         cfg.allowedPickerModes = [.singleWindow]
         cfg.excludedBundleIDs = [Bundle.main.bundleIdentifier ?? "com.user.displaymenu"]
-        cfg.allowsChangingSelectedContent = true
+        // Changing the window of a running stream makes macOS check Screen Recording permission,
+        // so every pick starts a fresh stream from the picker instead.
+        cfg.allowsChangingSelectedContent = false
         picker.defaultConfiguration = cfg
         picker.maximumStreamCount = 1
         picker.add(self)
@@ -38,25 +42,38 @@ final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamO
         }
     }
 
-    /// Opens the system window picker, or lets the person switch to another window while one is shown.
+    /// Opens the system window picker. Picking again while a window is shown switches to the new window.
     func choose() {
+        // Work happens on the MacBook while the monitor shows the window, so the MacBook becomes the
+        // main display: menu bar, Dock and new windows go there, and windows on its Retina screen
+        // are captured at twice the pixels, which keeps the monitor image sharp.
+        if previousMain == nil, let b = Displays.builtin, CGDisplayIsMain(b) == 0 {
+            previousMain = CGMainDisplayID()
+            Displays.setMain(b)
+        }
         let picker = SCContentSharingPicker.shared
         picker.isActive = true
-        if let stream {
-            picker.present(for: stream)
-        } else {
-            picker.present(using: .window)
-        }
+        picker.present(using: .window)
     }
 
     func stop() {
-        guard stream != nil || window != nil else { return }
-        stream?.stopCapture { _ in }
-        stream = nil
-        displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+        endStream()
         window?.orderOut(nil)
         window = nil
         SCContentSharingPicker.shared.isActive = false
+        restoreMain()
+    }
+
+    private func endStream() {
+        stream?.stopCapture { _ in }
+        stream = nil
+        displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+    }
+
+    private func restoreMain() {
+        guard let prev = previousMain else { return }
+        previousMain = nil
+        if Displays.current() == .extend, Displays.online().contains(prev) { Displays.setMain(prev) }
     }
 
     // MARK: SCContentSharingPickerObserver
@@ -66,7 +83,9 @@ final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamO
     }
 
     func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {
-        DispatchQueue.main.async { if self.stream == nil { picker.isActive = false } }
+        DispatchQueue.main.async {
+            if self.stream == nil { picker.isActive = false; self.restoreMain() }
+        }
     }
 
     func contentSharingPickerStartDidFailWithError(_ error: Error) {
@@ -76,11 +95,16 @@ final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamO
 
     // MARK: Streaming
 
-    private func configuration(for filter: SCContentFilter) -> SCStreamConfiguration {
+    private func configuration(for filter: SCContentFilter, on screen: NSScreen) -> SCStreamConfiguration {
         let c = SCStreamConfiguration()
-        let scale = CGFloat(filter.pointPixelScale)
-        c.width = max(2, Int(filter.contentRect.width * scale))
-        c.height = max(2, Int(filter.contentRect.height * scale))
+        // Capture straight at the size the window will fill on the monitor, in the monitor's pixels,
+        // so the frame is shown 1:1 and ScreenCaptureKit does the scaling from the window's own pixels.
+        let target = CGSize(width: screen.frame.width * screen.backingScaleFactor,
+                            height: screen.frame.height * screen.backingScaleFactor)
+        let src = filter.contentRect.size
+        let fit = min(target.width / max(src.width, 1), target.height / max(src.height, 1))
+        c.width = max(2, Int((src.width * fit).rounded()))
+        c.height = max(2, Int((src.height * fit).rounded()))
         c.minimumFrameInterval = CMTime(value: 1, timescale: 60)
         c.pixelFormat = kCVPixelFormatType_32BGRA
         c.queueDepth = 5
@@ -91,15 +115,13 @@ final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamO
     }
 
     private func start(with filter: SCContentFilter) {
-        let config = configuration(for: filter)
-        if let stream {
-            // The person picked a different window from the menu-bar indicator.
-            stream.updateContentFilter(filter) { _ in }
-            stream.updateConfiguration(config) { _ in }
-            return
-        }
         guard let screen = Self.externalScreen() else { NSSound.beep(); return }
-        showWindow(on: screen)
+        endStream() // picking again replaces the window being shown
+        if window == nil { showWindow(on: screen) }
+        displayLayer.contentsScale = screen.backingScaleFactor
+        let config = configuration(for: filter, on: screen)
+        NSLog("DisplayMenu: showing window %@ @%.0fx as %dx%d px",
+              NSStringFromRect(filter.contentRect), filter.pointPixelScale, config.width, config.height)
 
         let s = SCStream(filter: filter, configuration: config, delegate: self)
         do {
