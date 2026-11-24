@@ -13,8 +13,6 @@ import ScreenCaptureKit
 final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
     private var window: NSWindow?
-    /// The main display before this mode made the MacBook main, restored when it stops.
-    private var previousMain: CGDirectDisplayID?
     private let displayLayer = AVSampleBufferDisplayLayer()
     private let frameQueue = DispatchQueue(label: "displaymenu.frames", qos: .userInteractive)
 
@@ -43,14 +41,8 @@ final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamO
     }
 
     /// Opens the system window picker. Picking again while a window is shown switches to the new window.
+    /// It leaves the screen arrangement and every window where they are.
     func choose() {
-        // Work happens on the MacBook while the monitor shows the window, so the MacBook becomes the
-        // main display: menu bar, Dock and new windows go there, and windows on its Retina screen
-        // are captured at twice the pixels, which keeps the monitor image sharp.
-        if previousMain == nil, let b = Displays.builtin, CGDisplayIsMain(b) == 0 {
-            previousMain = CGMainDisplayID()
-            Displays.setMain(b)
-        }
         let picker = SCContentSharingPicker.shared
         picker.isActive = true
         picker.present(using: .window)
@@ -61,7 +53,6 @@ final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamO
         window?.orderOut(nil)
         window = nil
         SCContentSharingPicker.shared.isActive = false
-        restoreMain()
     }
 
     private func endStream() {
@@ -70,11 +61,6 @@ final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamO
         displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
     }
 
-    private func restoreMain() {
-        guard let prev = previousMain else { return }
-        previousMain = nil
-        if Displays.current() == .extend, Displays.online().contains(prev) { Displays.setMain(prev) }
-    }
 
     // MARK: SCContentSharingPickerObserver
 
@@ -84,7 +70,7 @@ final class WindowPresenter: NSObject, SCContentSharingPickerObserver, SCStreamO
 
     func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {
         DispatchQueue.main.async {
-            if self.stream == nil { picker.isActive = false; self.restoreMain() }
+            if self.stream == nil { picker.isActive = false }
         }
     }
 

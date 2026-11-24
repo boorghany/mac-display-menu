@@ -79,18 +79,6 @@ enum Displays {
         return (samePixels.isEmpty ? same : samePixels).max { $0.refreshRate < $1.refreshRate }
     }
 
-    /// Makes `d` the main display (menu bar and Dock) and keeps the screens' arrangement.
-    static func setMain(_ d: CGDirectDisplayID) {
-        let shift = CGDisplayBounds(d).origin
-        guard shift != .zero else { return }
-        configure { cfg in
-            for id in online() where CGDisplayMirrorsDisplay(id) == kCGNullDirectDisplay {
-                let o = CGDisplayBounds(id).origin
-                CGConfigureDisplayOrigin(cfg, id, Int32(o.x - shift.x), Int32(o.y - shift.y))
-            }
-        }
-    }
-
     @discardableResult
     static func configure(_ body: (CGDisplayConfigRef) -> Void) -> Bool {
         var cfg: CGDisplayConfigRef?
