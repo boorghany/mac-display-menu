@@ -6,6 +6,7 @@
 import AppKit
 import Carbon.HIToolbox
 import CoreGraphics
+import ServiceManagement
 import SwiftUI
 
 // MARK: - Display configuration
@@ -207,6 +208,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let presenter = WindowPresenter()
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        // Only one copy runs. Opening the app again just shows the picker of the running copy.
+        let me = NSRunningApplication.current
+        if NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            .contains(where: { $0 != me }) {
+            DistributedNotificationCenter.default().postNotificationName(
+                .init("io.github.boorghany.macdisplaymenu.show"), object: nil, userInfo: nil, deliverImmediately: true)
+            NSApp.terminate(nil)
+            return
+        }
+        guard setUpLoginItem() else { return }
         registerHotKey()
         // Pick a mode from scripts (object = "1"..."4"), mainly for testing.
         DistributedNotificationCenter.default().addObserver(forName: .init("io.github.boorghany.macdisplaymenu.mode"), object: nil, queue: .main) { [weak self] note in
@@ -217,6 +228,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         DistributedNotificationCenter.default().addObserver(forName: .init("io.github.boorghany.macdisplaymenu.show"), object: nil, queue: .main) { [weak self] _ in
             self?.toggle()
         }
+    }
+
+    /// Starts the app at login through macOS's own login items. It must run from Applications,
+    /// not from the disk image, so the login item points at a lasting copy.
+    func setUpLoginItem() -> Bool {
+        let path = Bundle.main.bundlePath
+        if path.hasPrefix("/Volumes/") || path.contains("/AppTranslocation/") {
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.messageText = "Move Mac Display Menu to Applications"
+            alert.informativeText = "Drag Mac Display Menu from the disk image to the Applications folder, then open it from there."
+            alert.runModal()
+            NSApp.terminate(nil)
+            return false
+        }
+        if SMAppService.mainApp.status != .enabled {
+            do { try SMAppService.mainApp.register() }
+            catch { NSLog("MacDisplayMenu: could not add the login item: %@", String(describing: error)) }
+        }
+        // On the first launch, show the picker once so it is clear the app is running.
+        if !UserDefaults.standard.bool(forKey: "launchedBefore") {
+            UserDefaults.standard.set(true, forKey: "launchedBefore")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.show() }
+        }
+        return true
     }
 
     func registerHotKey() {

@@ -1,7 +1,0 @@
-#!/bin/sh
-# Stop a running copy before files are replaced, including the older per-user "DisplayMenu" build.
-LABEL=io.github.boorghany.macdisplaymenu
-USER_ID=$(stat -f %u /dev/console)
-launchctl bootout "gui/$USER_ID/$LABEL" 2>/dev/null
-launchctl bootout "gui/$USER_ID/com.user.displaymenu" 2>/dev/null
-exit 0

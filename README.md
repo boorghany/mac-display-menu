@@ -13,11 +13,11 @@ Click an option or press 1–4. Esc closes the window. A check mark shows the cu
 
 ## Install
 
-Download `MacDisplayMenu-<version>.pkg` from [Releases](../../releases) and open it.
+1. Download `MacDisplayMenu-<version>.dmg` from [Releases](../../releases) and open it.
+2. Drag **Mac Display Menu** to **Applications**.
+3. Open it from Applications. It adds itself to your login items, so it starts at every login. The app has no Dock icon. Press ⌘P to use it.
 
-The installer puts **Mac Display Menu** in `/Applications`, sets it to start at login, and adds the `displaymode` command-line tool to `/usr/local/bin`. The app has no Dock icon. Press ⌘P to use it.
-
-The package is not notarized by Apple. The first time you open it, macOS may say it can't verify the developer. In that case, open **System Settings › Privacy & Security** and click **Open Anyway** next to the message about the package.
+The app is not notarized by Apple. The first time you open it, macOS may say it can't verify the developer. In that case, open **System Settings › Privacy & Security** and click **Open Anyway** next to the message about Mac Display Menu.
 
 Requirements: macOS 14 Sonoma or later, on an Apple silicon or Intel Mac.
 
@@ -40,6 +40,12 @@ To pick another window, choose mode 4 again. To stop, choose modes 1–3 or use 
 
 ## Command-line tool
 
+The `displaymode` tool ships inside the app. To use it from Terminal, link it once:
+
+```sh
+sudo ln -s "/Applications/Mac Display Menu.app/Contents/MacOS/displaymode" /usr/local/bin/displaymode
+```
+
 ```sh
 displaymode extend | mirror-builtin | mirror-external | status | menu
 ```
@@ -53,11 +59,7 @@ displaymode extend | mirror-builtin | mirror-external | status | menu
 
 ## Uninstall
 
-```sh
-./uninstall.sh
-```
-
-The script stops the app and removes the app, the login item and the CLI. It asks for your password because the package installs into system folders.
+Quit the app with `pkill -x MacDisplayMenu` and drag it from Applications to the Trash. Its login item disappears with the app. The `uninstall.sh` script does the same, and it also removes the files of a 1.2.0 installer-package install.
 
 ## Build from source
 
@@ -65,7 +67,7 @@ You need the Xcode Command Line Tools (`xcode-select --install`).
 
 ```sh
 ./build.sh      # universal app and CLI in ./build
-./package.sh    # build/MacDisplayMenu-<version>.pkg
+./package.sh    # build/MacDisplayMenu-<version>.dmg
 ```
 
 ## Layout
@@ -73,7 +75,6 @@ You need the Xcode Command Line Tools (`xcode-select --install`).
 - `App/main.swift`: display modes, the picker window and the hotkey.
 - `App/WindowPresenter.swift`: mode 4, which shows one window on the monitor.
 - `cli/displaymode.swift`: the command-line tool.
-- `packaging/`: installer scripts.
 
 ## License
 

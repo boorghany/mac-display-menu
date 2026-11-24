@@ -2,7 +2,7 @@
 # Build "Mac Display Menu.app" and the displaymode CLI into ./build as universal (Apple silicon + Intel) binaries.
 set -euo pipefail
 cd "$(dirname "$0")"
-VERSION=${VERSION:-1.2.0}
+VERSION=${VERSION:-1.3.0}
 APP="build/Mac Display Menu.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" build/obj
@@ -32,6 +32,8 @@ universal() { # universal <output> <sources...>
 
 universal "$APP/Contents/MacOS/MacDisplayMenu" App/*.swift
 universal build/displaymode cli/displaymode.swift
-codesign --force --sign - "$APP"
 codesign --force --sign - build/displaymode
+cp build/displaymode "$APP/Contents/MacOS/displaymode" # the CLI ships inside the app
+codesign --force --sign - "$APP/Contents/MacOS/displaymode"
+codesign --force --sign - "$APP"
 echo "Built $APP and build/displaymode ($VERSION)"
